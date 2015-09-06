@@ -31,13 +31,17 @@ app.use(express.static(path.join(__dirname,'public/')));
 io.on('connection',function(socket){
  	console.log('A user connected'); 
 
+
  	//check database initialization and put existing messages to the new client
-	db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='talkpool'", function(err, row) {
+ 	sqlRequest = "SELECT name FROM sqlite_master WHERE type='table' AND name='talkpool'";
+	db.get(sqlRequest, function(err, row) {
 		if(err !== null) {
 			console.log(err);
 		}
 		else if(row == null) {
-			db.run('CREATE TABLE "talkpool" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "name" VARCHAR(255), "msg" VARCHAR(255), "time" VARCHAR(255))', function(err) {
+			//create a new database if not exists
+			sqlRequest = 'CREATE TABLE "talkpool" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "name" VARCHAR(255), "msg" VARCHAR(255), "time" VARCHAR(255))';
+			db.run(sqlRequest, function(err) {
 				if(err !== null) {
 					console.log(err);
 				}
@@ -47,21 +51,35 @@ io.on('connection',function(socket){
 			});
 		}
 		else {
-			console.log("SQL Table 'talkpool' already initialized.");
 			//put existing messages to the new client
-			db.all("SELECT * FROM talkpool", function(err1, messages){
+			console.log("SQL Table 'talkpool' already initialized.");
+			sqlRequest = "SELECT * FROM talkpool";
+			db.all(sqlRequest, function(err1, messages){
 				messages.forEach(function(message){
 					console.log(message);
 					socket.emit('output', message);
 				});
+
+				//notify others when someone enters the chatty room
+ 				//var clientEnterMessage = { enter:true, leave : false};
+				//io.emit('output', clientEnterMessage);
 			});
+
 		}
 	});
 
-	//update status
-	sendStatus = function(s){
-		socket.emit('status', s);
-	}
+
+	//check if checkName already exists in the database
+	//socket.on('chatName',function(data){
+	//	//data here only contain name
+	//	sqlRequest = "SELECT * FROM talkpool WHERE name = '" + data.name + "'";
+	//	db.get(sqlRequest, function(err, row){
+	//		if(row == null)
+	//			socket.emit('existName', false);
+	//		else
+	//			socket.emit('existName', true);
+	//	});
+	//});
 
 	//Wait and input new (name, msg) to Database
 	socket.on('input', function(data){
@@ -69,15 +87,33 @@ io.on('connection',function(socket){
 		var name = data.name,
 			msg  = data.msg,
 			time = data.time;
+			
+			//double ' to the name
+			var name_p="";
+			for (var i=0; i<name.length;i++){
+				name_p+=name.charAt(i);
+				if (name.charAt(i)=="'"){
+					name_p+="'";
+				}
+			};
+
+			var msg_p="";
+			for (var j=0; j<msg.length;j++){
+				msg_p+=msg.charAt(j);
+				if (msg.charAt(j)=="'"){
+					msg_p+="'";
+				}
+			};
 
 		var whitespacePattern = /^\s*$/;
 		if(whitespacePattern.test(name) || whitespacePattern.test(msg)){
 			console.log('Invalid');
-			sendStatus('Name and message are required');
 		}
 		else{
+			//if not null, insert new (name, msg) to the database
 			console.log('Valid');
-			sqlRequest = "INSERT INTO 'talkpool' (name, msg, time) VALUES ('" + name + "', '" + msg + "', '" + time + "')"
+			console.log('Actual name = '+ name_p + '; msg = ' + msg_p + '; time = ' + time);
+			sqlRequest = "INSERT INTO 'talkpool' (name, msg, time) VALUES ('" + name_p + "', '" + msg_p + "', '" + time + "')";
 			db.run(sqlRequest, function(err) {
         		if(err !== null) {
           			console.log('Data input failed');
@@ -86,10 +122,7 @@ io.on('connection',function(socket){
         			console.log('Data input success');
         			//broadcast input from one client to all other clients
         			io.emit('output', data);
-        			sendStatus({
-        				message: 'Message sent',
-        				clear : true
-        			})
+        			socket.emit('status', {clear :true});
         		}
     		});
 		}
@@ -98,6 +131,10 @@ io.on('connection',function(socket){
 	//Record user's exit
 	socket.on('disconnect', function(){
 		console.log('A user disconnected');
+		
+		//notify others that one user left
+		//var clientQuitMessage = { enter: false, leave : true};
+		//io.emit('output', clientQuitMessage);
 	});
 });
 
